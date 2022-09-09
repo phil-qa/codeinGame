@@ -1,0 +1,65 @@
+Print the product of all digits of a number n.
+Input
+Line 1: The integer n
+Output
+Line 1: The product of all digits
+Constraints
+Example
+Input
+1234
+Output
+24
+
+
+
+John the farmer needs to put a fence to separate the cows living on his field.
+On each side of this fence, there must be the same amount of cows.
+He has totalCows cows in a field of size width x height.
+Help John the farmer to determine the position to put his fence.
+The fence is always one straight line all across the field, and always placed vertically, splitting the field into left and right.
+The number of cows is always even and the locations of the cows always allow to cut the field in half, only one solution is possible for each test.
+Input
+Line 1: totalCows the number of cows
+Line 2: width the width of his field
+Line 3: height the height of his field
+Next height lines: width characters which can be '.' for grass or '#' for a cow.
+Output
+Line 1 : An integer fencePosition between 0 and width-1 which is the position where to put the fence
+Constraints
+2 ≤ totalCows ≤ 10
+3 ≤ width ≤ 20
+3 ≤ height ≤ 20
+Example
+Input
+2
+3
+3
+#..
+..#
+...
+Output
+1
+
+
+count the wolves ans owls
+w, h = [int(i) for i in input().split()]
+wolf=owl = 0
+for i in range(h):
+    row = input()
+    wolf += row.count('|\_/|')
+    owl += row.count('(oo)')
+
+print(wolf)
+print(owl)
+
+You and your friend Steven go to the gym for a while.
+Now to become more efficient you decided to track your progress in your own app.
+
+Different exercises combine weights differently to get the total weight you really move in an exercise.
+
+Bench press "bp": <weight> + 20
+Leg press "lp": <weight> + 47
+Planks "p": <weight> + body weight
+
+Do not forget to multiply them by the amount of repetitions.
+Caution: repetitions on planks are counted as seconds and so they do not influence the volume of weight. So do not multiply in that case.

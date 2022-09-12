@@ -55,7 +55,6 @@ def calculate_trajectory(primary_x, primary_y, secondary_x, secondary_y, target_
 
 
 def will_pod_hit(refrence_x=None, secondary_x=None, secondary_y=None, target_x=None, target_y=None):
-
     # light weight check assumptions, accelleration is constant 25 per tick, max speed is 650, turnRate is 17 degrees
     # per tick v 1.2 - normalize to 360 degrees - done - redact for 1.3 v 1.3 - compensate for speed by reducing the
     # angle available as a factor of percent of max speed - fail cant detect miss in time v 1.4 - apply vector angles
@@ -86,6 +85,8 @@ class Checkpoint:
         self.angle_to_next = trajectory_data[0]
 
 
+
+
 class Telemetry:
     def __init__(self):
         self.readings = []
@@ -95,8 +96,7 @@ class Telemetry:
         self.readings.append(record)
 
 
-def add_checkpoint(checkpoint_id, checkpoint_x, checkpoint_y):
-    checkpoints.append(Checkpoint(checkpoint_id, checkpoint_x, checkpoint_y))
+
 
 
 class Course:
@@ -105,53 +105,70 @@ class Course:
         self.course_known = False
         self.active_target_checkpoint = None
         self.last_active_checkpoint = None
+        self.lap = 0
+        self.longest_run_checkpoint = None
+
+
+    def add_checkpoint(self, checkpoint_id, checkpoint_x, checkpoint_y):
+        checkpoints.append(Checkpoint(checkpoint_id, checkpoint_x, checkpoint_y))
+
+    def update_longest_run_checkpoint(self):
+        lengths = [x.distance_to_next for x in self.checkpoints]
+        lengths.insert(0, lengths.pop())
+        self.longest_run_checkpoint = next(x for x in checkpoints if x.distance_to_next == max(lengths))
+
+
 
     def update_active_target(self, target_x, target_y):
+        self.last_active_checkpoint = self.active_target_checkpoint
         self.update_course_state(target_x, target_y)
         self.active_target_checkpoint = (
             next((cp for cp in checkpoints if cp.x == target_x and cp.y == target_y), None))
 
-    def is_add_checkpoint(self, next_checkpoint_x_coord, next_checkpoint_y_coord):
-        checkpoints_changed = self.checkpoints[-1].x != next_checkpoint_x_coord or checkpoints[-1].y != next_checkpoint_y_coord
+    def add_checkpoint_check(self, next_checkpoint_x_coord, next_checkpoint_y_coord):
+        checkpoints_changed = self.checkpoints[-1].x != next_checkpoint_x_coord or checkpoints[
+            -1].y != next_checkpoint_y_coord
         checkpoint_matches_known = (sum(c.x == next_checkpoint_x_coord for c in checkpoints) > 0 and sum(
             c.y == next_checkpoint_y_coord for c in checkpoints) > 0)
         return checkpoints_changed and not checkpoint_matches_known
 
-    def is_map_conditions_met(self, next_checkpoint_x_coord, next_checkpoint_y_coord):
+    def all_checkpoints_known_check(self, next_checkpoint_x_coord, next_checkpoint_y_coord):
         next_checkpoint_is_first = len(self.checkpoints) > 1 and self.checkpoints[0].x == next_checkpoint_x_coord and \
                                    self.checkpoints[0].y == next_checkpoint_y_coord
         return next_checkpoint_is_first
 
     def update_course_state(self, next_checkpoint_x_coord, next_checkpoint_y_coord):
-        if self.is_add_checkpoint(next_checkpoint_x_coord, next_checkpoint_y_coord):
+        if self.add_checkpoint_check(next_checkpoint_x_coord, next_checkpoint_y_coord):
             selected_target = Checkpoint(len(self.checkpoints) + 1, next_checkpoint_x_coord, next_checkpoint_y_coord)
             checkpoints.append(selected_target)
             for c in self.checkpoints:
                 debug(c)
 
-        elif self.is_map_conditions_met(next_checkpoint_x_coord, next_checkpoint_y_coord):  # set checkpoints
+        if self.active_target_checkpoint != self.last_active_checkpoint and self.active_target_checkpoint == \
+                course.checkpoints[1]:
+            self.lap += 1
+            debug(f"Lap changed, lap {self.lap}")
+
+        elif self.all_checkpoints_known_check(next_checkpoint_x_coord, next_checkpoint_y_coord):  # set checkpoints
             debug("Map read executing analysis")
             for c_index in range(len(self.checkpoints)):
-                wrap_index = c_index + 1 if c_index + 1 < len(self.checkpoints) else 0
-                set_distance(self.checkpoints[c_index - 1], self.checkpoints[c_index])
-                debug(f"{c_index}, {wrap_index}")
-                self.checkpoints[c_index].set_angle_to_next(self.checkpoints[c_index - 1], self.checkpoints[wrap_index])
+                self.update_checkpoint_to_checkpoint_angle(c_index)
 
             for c in self.checkpoints:
                 debug(c)
             self.course_known = True
 
-
-def map_checkpoint(previous_checkpoint, current_checkpoint, next_checkpoint):
-    current_checkpoint.update_distance_to_next(next_checkpoint.x, next_checkpoint.y)
-    current_checkpoint.apex_angle = \
-        calculate_angles_from_coords(previous_checkpoint.x, previous_checkpoint.y, current_checkpoint.x,
-                                     current_checkpoint.y, next_checkpoint.x, next_checkpoint.y)[0]
+            self.update_longest_run_checkpoint()
 
 
-def set_distance(source_checkpoint, target_checkpoint):
-    source_checkpoint.update_distance_to_next(target_checkpoint.x, target_checkpoint.y)
 
+
+    def update_checkpoint_to_checkpoint_angle(self, c_index):
+        target_checkpoint_index = c_index + 1 if c_index + 1 < len(self.checkpoints) else 0
+        distance_between_coords(self.checkpoints[c_index - 1], self.checkpoints[c_index])
+        debug(f"{c_index}, {target_checkpoint_index}")
+        self.checkpoints[c_index].set_angle_to_next(self.checkpoints[c_index - 1],
+                                                    self.checkpoints[target_checkpoint_index])
 
 class Pod:
     """
@@ -228,6 +245,28 @@ class Pod:
             f" trajectory angle to target {self.trajectory_angle}, thrust {self.thrust}, /"
             f"hit target {self.hit_next_target}, angletoTarget {self.angle_to_target}")
 
+class Pilot:
+    def __int__(self, course, pod):
+        self.course = course
+        self.pod = pod
+
+    def get_direction(self):
+        return None
+
+
+def map_checkpoint(previous_checkpoint, current_checkpoint, next_checkpoint):
+    current_checkpoint.update_distance_to_next(next_checkpoint.x, next_checkpoint.y)
+    current_checkpoint.apex_angle = \
+        calculate_angles_from_coords(previous_checkpoint.x, previous_checkpoint.y, current_checkpoint.x,
+                                     current_checkpoint.y, next_checkpoint.x, next_checkpoint.y)[0]
+
+
+def distance_between_coords(source_checkpoint, target_checkpoint):
+    source_checkpoint.update_distance_to_next(target_checkpoint.x, target_checkpoint.y)
+
+
+
+
 
 class Optimisation:
     def __init__(self):
@@ -245,6 +284,16 @@ lapped = False
 opt = Optimisation()
 course = Course()
 checkpoints = course.checkpoints
+pod_action = None
+pilot = None
+
+def update_pod_telemetry(player_pod, next_checkpoint_angle):
+    # next_checkpoint_angle = distance_between_two_points(x, y, next_checkpoint_x, next_checkpoint_y)
+    player_pod.update_position(course.active_target_checkpoint.position, x, y, next_checkpoint_dist,
+                               next_checkpoint_angle, next_checkpoint_x, next_checkpoint_y)
+    debug(f"{pods[0]}")
+    return pods[0]
+
 
 # game loop
 while True:
@@ -257,41 +306,26 @@ while True:
                                                                                                input().split()]
     opponent_x, opponent_y = [int(i) for i in input().split()]
 
-    if len(checkpoints) == 0:  # no checkpoints add one
-        add_checkpoint(1, next_checkpoint_x, next_checkpoint_y)
-        pods.append(Pod("Player", x, y, next_checkpoint_dist))
+    pod_action = f"{next_checkpoint_x}  {next_checkpoint_y} 100"
 
-    player = pods[0]
+    if len(checkpoints) == 0:  # no checkpoints add one
+        course.add_checkpoint(1, next_checkpoint_x, next_checkpoint_y)
+        pods.append(Pod("Player", x, y, next_checkpoint_dist))
+        pilot = Pilot(course, pods[0])
+
+
     course.update_active_target(next_checkpoint_x, next_checkpoint_y)
 
-    if player.x != x or player.y != y:  # is the pod in a different positon to last time
-        next_checkpoint_angle = distance_between_two_points(x, y, next_checkpoint_x, next_checkpoint_y)
-        pods[0].update_position(course.active_target_checkpoint.position, x, y, next_checkpoint_dist,
-                                next_checkpoint_angle, next_checkpoint_x, next_checkpoint_y)
-        debug(f"{pods[0]}")
+    if pilot.pod.x != x or pilot.pod.y != y:  # is the pod in a different positon to last time
+        update_pod_telemetry(pilot.pod, next_checkpoint_angle)
 
     if course.course_known:
-        player = pods[0]
-        course.last_active_checkpoint = course.active_target_checkpoint
 
-        course.update_active_target(next_checkpoint_x, next_checkpoint_y)
-
-        if course.active_target_checkpoint != course.last_active_checkpoint and course.active_target_checkpoint == \
-                course.checkpoints[1]:
-            lap += 1
-            debug(f"Lap changed, lap {lap}")
-            if lap == 2:
-                debug(pods[0].tel)
-        lengths = [x.distance_to_next for x in checkpoints]
-        lengths.insert(0, lengths.pop())
-        debug(f"{lengths}, {lengths.index(max(lengths)) + 1}")
+        pilot.course.update_active_target(next_checkpoint_x, next_checkpoint_y)
 
         player.decellerate(40) if not player.hit_next_target else player.accellerate(60)
 
-        longest_leg = next(x for x in checkpoints if x.distance_to_next == max(lengths))
-        debug(longest_leg.position)
-
-        if not boost_fired and course.active_target_checkpoint.position == lengths.index(max(lengths)) + 1:
+        if not boost_fired and course.active_target_checkpoint.position == course.longest_run_checkpoint:
             if player.trajectory_angle <= 30:
                 debug("Fire boost")
                 player.fire_boost = True
@@ -312,4 +346,4 @@ while True:
     if player.fire_boost:
         thrust_value = "BOOST"
 
-    print(str(next_checkpoint_x) + " " + str(next_checkpoint_y) + f" {thrust_value}")
+    print(pod_action)

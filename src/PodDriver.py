@@ -22,6 +22,8 @@ def distance_between_two_points(reference_x, reference_y, target_x, target_y):
     y_delta = target_y - reference_y
     return int(math.sqrt((x_delta ** 2) + (y_delta ** 2)))
 
+def distance_between_coords(source_checkpoint, target_checkpoint):
+    source_checkpoint.update_distance_to_next(target_checkpoint.x, target_checkpoint.y)
 
 def calculate_angles_from_coords(point_a_x, point_a_y, point_b_x, point_b_y, point_c_x, point_c_y):
     try:
@@ -39,6 +41,11 @@ def calculate_angles_from_coords(point_a_x, point_a_y, point_b_x, point_b_y, poi
     except Exception as e:
         debug(f" {e} ")
 
+def map_checkpoint(previous_checkpoint, current_checkpoint, next_checkpoint):
+    current_checkpoint.update_distance_to_next(next_checkpoint.x, next_checkpoint.y)
+    current_checkpoint.apex_angle = \
+        calculate_angles_from_coords(previous_checkpoint.x, previous_checkpoint.y, current_checkpoint.x,
+                                     current_checkpoint.y, next_checkpoint.x, next_checkpoint.y)[0]
 
 def calculate_trajectory(primary_x, primary_y, secondary_x, secondary_y, target_x, target_y):
     reference_line = distance_between_two_points(primary_x, primary_y, target_x, target_y)
@@ -52,7 +59,6 @@ def calculate_trajectory(primary_x, primary_y, secondary_x, secondary_y, target_
     target_angle = int(57.29 * (
         acos((target_line ** 2 + reference_line ** 2 - travel_line ** 2) / (2 * target_line * reference_line)).real))
     return [reference_angle, travel_line, target_angle, travel_angle]
-
 
 def will_pod_hit(refrence_x=None, secondary_x=None, secondary_y=None, target_x=None, target_y=None):
     # light weight check assumptions, accelleration is constant 25 per tick, max speed is 650, turnRate is 17 degrees
@@ -85,8 +91,6 @@ class Checkpoint:
         self.angle_to_next = trajectory_data[0]
 
 
-
-
 class Telemetry:
     def __init__(self):
         self.readings = []
@@ -94,9 +98,6 @@ class Telemetry:
     def add_reading(self, record):
         debug(record)
         self.readings.append(record)
-
-
-
 
 
 class Course:
@@ -170,6 +171,7 @@ class Course:
         self.checkpoints[c_index].set_angle_to_next(self.checkpoints[c_index - 1],
                                                     self.checkpoints[target_checkpoint_index])
 
+
 class Pod:
     """
     Independent analysis shows that the pod max acceleration is over 5 turns then slow but continual, max speed in 24
@@ -192,7 +194,7 @@ class Pod:
         self.trajectory_angle = 0
         self.thrust = 100
         self.hit_next_target = True
-        self.fire_boost = False
+        self.boost_fired = False
         self.angle_to_target = 0
 
     def update_position(self, target_id, new_x, new_y, distance_to_target, angle_to_target, target_x, target_y):
@@ -205,6 +207,8 @@ class Pod:
         self.update_pod_position(new_x, new_y)
         self.target_distance = distance_to_target
         self.angle_to_target = angle_to_target
+        self.target_x = target_x
+        self.target_y = target_y
         self.will_i_hit_target()
         debug(
             f"calculated distance to target {distance_between_two_points(self.x, self.y, target_x, target_y)}/"
@@ -245,33 +249,33 @@ class Pod:
             f" trajectory angle to target {self.trajectory_angle}, thrust {self.thrust}, /"
             f"hit target {self.hit_next_target}, angletoTarget {self.angle_to_target}")
 
+
 class Pilot:
-    def __int__(self, course, pod):
+    def __init__(self, course, pod):
         self.course = course
         self.pod = pod
 
-    def get_direction(self):
-        return None
+    def get_decision(self):
+        if self.course.course_known:
+            return f"{self.course.active_target_checkpoint.x} {self.course.active_target_checkpoint.y} {self.thrust_value()}"
+        else:
+            return f"{self.course.active_target_checkpoint.x} {self.course.active_target_checkpoint.y} {self.thrust_value()}"
 
-
-def map_checkpoint(previous_checkpoint, current_checkpoint, next_checkpoint):
-    current_checkpoint.update_distance_to_next(next_checkpoint.x, next_checkpoint.y)
-    current_checkpoint.apex_angle = \
-        calculate_angles_from_coords(previous_checkpoint.x, previous_checkpoint.y, current_checkpoint.x,
-                                     current_checkpoint.y, next_checkpoint.x, next_checkpoint.y)[0]
-
-
-def distance_between_coords(source_checkpoint, target_checkpoint):
-    source_checkpoint.update_distance_to_next(target_checkpoint.x, target_checkpoint.y)
-
+    def thrust_value(self):
+        if self.fire_boost_check():
+            return "BOOST"
+        else:
+            return "100"
 
 
 
-
-class Optimisation:
-    def __init__(self):
-        self.window = 80
-
+    def fire_boost_check(self):
+        if not self.pod.boost_fired:
+            if (self.course.active_target_checkpoint == self.course.longest_run_checkpoint):
+                self.pod.boost_fired = True
+                return True
+        else:
+            return False
 
 '''Operational race code'''
 
@@ -281,7 +285,6 @@ course_known = False
 boost_fired = False
 lap = 1
 lapped = False
-opt = Optimisation()
 course = Course()
 checkpoints = course.checkpoints
 pod_action = None
@@ -306,20 +309,19 @@ while True:
                                                                                                input().split()]
     opponent_x, opponent_y = [int(i) for i in input().split()]
 
-    pod_action = f"{next_checkpoint_x}  {next_checkpoint_y} 100"
-
     if len(checkpoints) == 0:  # no checkpoints add one
         course.add_checkpoint(1, next_checkpoint_x, next_checkpoint_y)
         pods.append(Pod("Player", x, y, next_checkpoint_dist))
         pilot = Pilot(course, pods[0])
-
 
     course.update_active_target(next_checkpoint_x, next_checkpoint_y)
 
     if pilot.pod.x != x or pilot.pod.y != y:  # is the pod in a different positon to last time
         update_pod_telemetry(pilot.pod, next_checkpoint_angle)
 
-    if course.course_known:
+    pod_action = pilot.get_decision()
+    debug(pod_action)
+    '''   if course.course_known:
 
         pilot.course.update_active_target(next_checkpoint_x, next_checkpoint_y)
 
@@ -333,7 +335,7 @@ while True:
     else:
         player.decellerate(40) if not player.hit_next_target else player.accellerate(60)
 
-    debug(f"thrust {player.thrust}, boost fired {boost_fired}")
+    debug(f"thrust {player.thrust}, boost fired {boost_fired}")'''
 
     # Write an action using print
     # To debug: print("Debug messages...", file=sys.stderr, flush=True)
@@ -341,9 +343,5 @@ while True:
     # You have to output the target position
     # followed by the power (0 <= thrust <= 100)
     # i.e.: "x y thrust"
-
-    thrust_value = player.thrust
-    if player.fire_boost:
-        thrust_value = "BOOST"
 
     print(pod_action)
